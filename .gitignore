@@ -1,0 +1,6 @@
+*.log
+.idea
+.venv
+config.cfg
+history/*
+references/*
