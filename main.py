@@ -8,6 +8,9 @@ import ollama
 from pydantic.dataclasses import dataclass
 
 HISTORY_PATH = os.path.join(os.path.abspath(os.path.dirname(__file__)), "history")
+EMBED_NUM = 0
+CHUNK_SIZE = 300
+CHUNK_OVERLAP = 50
 
 def get_history_file(channel: str) -> (str, bool):
     for name in os.listdir(HISTORY_PATH):
@@ -27,9 +30,34 @@ def generate_response(messages) -> str:
     else:
         raise Exception(output.stderr.decode("utf-8"))
 
-def embed_chunk(chunks: list):
-    responses = ollama.embed(model='nomic-embed-text', input=chunks)
-    print(f"{type(responses)[0]} {type(responses[0])}")
+def embed_chunk(chunks: list, file_name: str):
+    responses = ollama.embed(model='nomic-embed-text', input=chunks).embeddings
+    for i, chunk in enumerate(chunks):
+        with open(f'references/embeddings/{file_name}-{i}.txt', 'x') as f:
+            f.write(f"{chunk}\n{str(responses[i])}")
+    return responses
+
+def get_chunks(file_name: str):
+    chunks = []
+    with open(file_name, 'r') as f:
+        content = f.read().split()
+    for i in range(0, len(content), CHUNK_SIZE - CHUNK_OVERLAP):
+        chunk = " ".join(content[i:i+CHUNK_SIZE])
+        chunks.append(chunk)
+    print(chunks[0])
+    return chunks
+
+def embed_references() -> dict:
+    for file in os.listdir("references/embeddings"):
+        os.remove(file)
+    embeddings: dict = {}
+    for file in os.listdir("references/wiki.wiki"):
+        if file.endswith(".md") and file[0] != '_':
+            chunks = get_chunks("references/wiki.wiki/" + file)
+            chunk_embeddings = embed_chunk(chunks, file[:-3])
+            for i, chunk_embedding in enumerate(chunk_embeddings):
+                embeddings[chunk_embedding] = chunks[i]
+    return embeddings
 
 if __name__=="__main__":
     parser = argparse.ArgumentParser(description="Ollama History Parser")
@@ -41,7 +69,8 @@ if __name__=="__main__":
 
     args = parser.parse_args()
     if args.update_embeddings:
-        embed_chunk('Hello!')
+        subprocess.Popen('git pull', cwd='references/wiki.wiki')
+        embed_references()
     if args.prompt:
         prompt = args.prompt.replace('\n', '\\n').replace('\"', '\\\"').replace('\'', '\\\'')
         filename, exists = get_history_file(args.channel)
